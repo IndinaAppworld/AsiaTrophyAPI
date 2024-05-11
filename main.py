@@ -26,6 +26,10 @@ app.config['MYSQL_DATABASE_USER'] = 'root'
 app.config['MYSQL_DATABASE_PASSWORD'] = ''
 app.config['MYSQL_DATABASE_DB'] = 'asiatrophy'
 app.config['MYSQL_DATABASE_HOST'] = '127.0.0.1'
+
+
+
+
 mysql.init_app(app)
 conn = mysql.connect()
 cursor = conn.cursor()
@@ -37,6 +41,11 @@ warnings.filterwarnings('ignore')
 
 def customPrint(str):
     print(str)
+
+def formatINR(number):
+    s, *d = (number).partition(".")
+    r = ",".join([s[x-2:x] for x in range(-3, -len(s), -2)][::-1] + [s[-3:]])
+    return "".join([r] + d)
 
 
 def encrypt(str):
@@ -94,6 +103,81 @@ async def allcategories():
     response = encrypt(jsonify(response))
     return response
 
+@app.route('/api/productlistnew', methods=['POST'])
+async def productlistNew():
+    data = request.form['data']
+    customPrint(data)
+    data = json.loads(data)
+    data = data.get('data')
+    data = decrypt(data)
+    MOBILENO = data.get('MOBILENO')
+    MATERIALID = data.get('MATERIALID')
+    CATEGORYID=data.get('CATEGORYID')
+    TOPSELLING = data.get('TOPSELLING')
+    NEWARRIVAL = data.get('NEWARRIVAL')
+    OFFERS = data.get('OFFERS')
+
+    customPrint(MATERIALID)
+    customPrint(MOBILENO)
+    customPrint(CATEGORYID)
+
+
+    product_list = []
+    STATUS = True
+    MESSAGE = "Transaction Success"
+    query = "select p.id,p.name,p.image,p.videolink,min(f.size),max(f.size),min(f.price),max(f.price),max(f.discount) from  asiatrophybackend_product p, asiatrophybackend_flavor f where p.status=1";
+
+    try:
+        cursor = mysql.get_db().cursor()
+
+        # "group by p.id"
+        if  len(MATERIALID)>0:
+            query = query+ " and p.material_id in ("+MATERIALID+")";
+
+        if len(CATEGORYID)>0:
+            query = query + " and pc.categories_id in ("+CATEGORYID+") and pc.product_id=p.id";
+
+        if len(TOPSELLING) > 0:
+            query = query + " and topselling=1";
+
+        if len(NEWARRIVAL) > 0:
+            query = query + " and newarrival=1";
+
+        if len(OFFERS) > 0:
+            query = query + " and offers=1";
+
+        query=query+" group by p.id"
+        print(query)
+        cursor.execute(query)
+        data_sub = cursor.fetchall()
+        print(len(data_sub))
+
+
+        if len(data_sub) > 0:
+            for query_data_sub in data_sub:
+                product_response = {}
+                product_response['ID'] = str(query_data_sub[0])
+                product_response['NAME'] = query_data_sub[1]
+                product_response['IMAGE'] = query_data_sub[2]
+                product_response['VIDEOLINK'] = query_data_sub[3]
+                product_response['SIZE'] = f'{str(query_data_sub[4])} in -{str(query_data_sub[5])} in'
+                product_response['PRICE'] = f'₹. {formatINR(str(query_data_sub[6]))} - ₹. {formatINR(str(query_data_sub[7]))}'
+                product_response['DISCOUNT'] = str(query_data_sub[8])
+                product_list.append(product_response)
+        else:
+            STATUS = False
+            MESSAGE = "No Product Found!"
+    except Exception as e:
+        STATUS = False
+        MESSAGE = "APPLICATION ERROR-->" + str(e)
+
+    response = {'status': STATUS, 'message': MESSAGE,
+                'product_list': product_list}
+    response = encrypt(jsonify(response))
+    return response
+
+
+
 
 @app.route('/api/productlist', methods=['POST'])
 async def productlist():
@@ -104,8 +188,13 @@ async def productlist():
     data = decrypt(data)
     MOBILENO = data.get('MOBILENO')
     MATERIALID = data.get('MATERIALID')
+    CATEGORYID=data.get('CATEGORYID')
+    TOPSELLING = data.get('TOPSELLING')
+    TOPSELLING = data.get('TOPSELLING')
+
     customPrint(MATERIALID)
     customPrint(MOBILENO)
+    customPrint(CATEGORYID)
 
 
     product_list = []
@@ -114,12 +203,41 @@ async def productlist():
 
     try:
         cursor = mysql.get_db().cursor()
-        query = "select p.id,p.name,p.image,p.videolink,min(f.size),max(f.size),min(f.price),max(f.price),max(f.discount) from  asiatrophybackend_product p, asiatrophybackend_flavor f where f.stock=1 and f.status=1 and p.id=f.product_id and p.material_id=%s group by p.id";
-        customPrint(query)
-        cursor.execute(query,MATERIALID)
-        data_sub = cursor.fetchall()
 
-        print(len(data_sub))
+        if  len(MATERIALID)>0:
+            query = "select p.id,p.name,p.image,p.videolink,min(f.size),max(f.size),min(f.price),max(f.price),max(f.discount) from  asiatrophybackend_product p, asiatrophybackend_flavor f where f.stock=1 and f.status=1 and p.id=f.product_id and p.material_id in ("+MATERIALID+") group by p.id";
+            customPrint(query)
+            customPrint(query )  # Print the query with parameters substituted
+            cursor.execute(query)
+            # formatted_query = query % MATERIALID  # Format the query with placeholders
+
+            data_sub = cursor.fetchall()
+            print("TOTAL RECORD>>>>>")
+            print(len(data_sub))
+
+        elif   len(CATEGORYID)>0:
+            query = "select p.id,p.name,p.image,p.videolink,min(f.size),max(f.size),min(f.price),max(f.price),max(f.discount) from  asiatrophybackend_product p, asiatrophybackend_flavor f,asiatrophybackend_product_categories pc where f.stock=1 and f.status=1 and p.id=f.product_id and pc.categories_id in ("+CATEGORYID+") and pc.product_id=p.id group by p.id";
+            customPrint(query)
+            cursor.execute(query)
+            data_sub = cursor.fetchall()
+
+        elif len(TOPSELLING) > 0:
+            query = "select p.id,p.name,p.image,p.videolink,min(f.size),max(f.size),min(f.price),max(f.price),max(f.discount) from  asiatrophybackend_product p, asiatrophybackend_flavor f,asiatrophybackend_product_categories pc where f.stock=1 and f.status=1 and p.id=f.product_id and p.topselling=1 and pc.product_id=p.id group by p.id";
+            customPrint(query)
+            cursor.execute(query)
+            data_sub = cursor.fetchall()
+
+            print(len(data_sub))
+
+        elif len(TOPSELLING) > 0:
+            query = "select p.id,p.name,p.image,p.videolink,min(f.size),max(f.size),min(f.price),max(f.price),max(f.discount) from  asiatrophybackend_product p, asiatrophybackend_flavor f,asiatrophybackend_product_categories pc where f.stock=1 and f.status=1 and p.id=f.product_id and p.topselling=1 and pc.product_id=p.id group by p.id";
+            customPrint(query)
+            cursor.execute(query)
+            data_sub = cursor.fetchall()
+
+            print(len(data_sub))
+
+
         if len(data_sub) > 0:
             for query_data_sub in data_sub:
                 product_response = {}
@@ -128,7 +246,7 @@ async def productlist():
                 product_response['IMAGE'] = query_data_sub[2]
                 product_response['VIDEOLINK'] = query_data_sub[3]
                 product_response['SIZE'] = f'{str(query_data_sub[4])} in -{str(query_data_sub[5])} in'
-                product_response['PRICE'] = f'{str(query_data_sub[6])}-{str(query_data_sub[7])}'
+                product_response['PRICE'] = f'₹. {formatINR(str(query_data_sub[6]))} - ₹. {formatINR(str(query_data_sub[7]))}'
                 product_response['DISCOUNT'] = str(query_data_sub[8])
                 product_list.append(product_response)
         else:
@@ -286,6 +404,7 @@ async def dashboard():
     category_list = []
     product_response_newarrival = []
     product_response_topselling = []
+    product_response_offers=[]
 
     STATUS = True
     MESSAGE = "Transaction Success"
@@ -357,7 +476,7 @@ async def dashboard():
                 product_response['IMAGE'] = query_data_sub[2]
                 product_response['VIDEOLINK'] = query_data_sub[3]
                 product_response['SIZE'] = f'{str(query_data_sub[4])} in -{str(query_data_sub[5])} in'
-                product_response['PRICE'] = f'{str(query_data_sub[6])}-{str(query_data_sub[7])}'
+                product_response['PRICE'] = f'₹. {formatINR(str(query_data_sub[6]))} - ₹. {formatINR(str(query_data_sub[7]))}'
                 product_response['DISCOUNT'] = str(query_data_sub[8])
                 product_response_newarrival.append(product_response)
 
@@ -376,22 +495,41 @@ async def dashboard():
                 product_response['IMAGE'] = query_data_sub[2]
                 product_response['VIDEOLINK'] = query_data_sub[3]
                 product_response['SIZE'] = f'{str(query_data_sub[4])} in -{str(query_data_sub[5])} in'
-                product_response['PRICE'] = f'{str(query_data_sub[6])}-{str(query_data_sub[7])}'
+                product_response['PRICE'] = f'₹. {formatINR(str(query_data_sub[6]))} - ₹. {formatINR(str(query_data_sub[7]))}'
                 product_response['DISCOUNT'] = str(query_data_sub[8])
                 product_response_topselling.append(product_response)
+
+        query = "select p.id,p.name,p.image,p.videolink,min(f.size),max(f.size),min(f.price),max(f.price),max(f.discount) from  asiatrophybackend_product p, asiatrophybackend_flavor f where" \
+                " p.offers=1 and f.stock=1 and f.status=1 and p.id=f.product_id group by p.id";
+        cursor.execute(query)
+        data_sub = cursor.fetchall()
+
+        print(len(data_sub))
+        if len(data_sub) > 0:
+            for query_data_sub in data_sub:
+                product_response = {}
+                product_response['ID'] = str(query_data_sub[0])
+                product_response['NAME'] = query_data_sub[1]
+                product_response['IMAGE'] = query_data_sub[2]
+                product_response['VIDEOLINK'] = query_data_sub[3]
+                product_response['SIZE'] = f'{str(query_data_sub[4])} in -{str(query_data_sub[5])} in'
+                product_response['PRICE'] = f'₹. {formatINR(str(query_data_sub[6]))} - ₹. {formatINR(str(query_data_sub[7]))}'
+                product_response['DISCOUNT'] = str(query_data_sub[8])
+                product_response_offers.append(product_response)
+
     except Exception as e:
         STATUS = False
         MESSAGE = "APPLICATION ERROR-->" + str(e)
 
     response = {'status': STATUS, 'message': MESSAGE, 'bannerlist': banner_list, 'materialList': material_list,
                 'category_list': category_list, 'product_response_newarrival': product_response_newarrival,
-                'product_response_topselling': product_response_topselling}
+                'product_response_topselling': product_response_topselling,'product_response_offers':product_response_offers}
     response = encrypt(jsonify(response))
     return response  # Press ⌘F8 to toggle the breakpoint.
 
 
 # Press the green button in the gutter to run the script.
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5001, debug=True)
+    app.run(host='0.0.0.0', port=5002, debug=True)
 
 # See PyCharm help at https://www.jetbrains.com/help/pycharm/
