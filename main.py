@@ -125,7 +125,7 @@ async def productlistNew():
     product_list = []
     STATUS = True
     MESSAGE = "Transaction Success"
-    query = "select p.id,p.name,p.image,p.videolink,min(f.size),max(f.size),min(f.price),max(f.price),max(f.discount) from  asiatrophybackend_product p, asiatrophybackend_flavor f where p.status=1";
+    query = "select p.id,p.name,p.image,p.videolink,min(f.size),max(f.size),min(f.price),max(f.price),max(f.discount) from  asiatrophybackend_product p, asiatrophybackend_flavor f, asiatrophybackend_product_categories pc where p.status=1";
 
     try:
         cursor = mysql.get_db().cursor()
