@@ -56,7 +56,7 @@ def decrypt(str):
     return str;
 
 
-def generate_otp(length=6):
+def generate_otp(length=4):
     """Generate a random OTP"""
     return ''.join(random.choices(string.digits, k=length))
 
@@ -90,7 +90,7 @@ def verify_otp():
                 MESSAGE = "OTP has already been used or is invalid"
             else:
                 current_time = datetime.now()
-                if stored_otp == OTP and (current_time - created_at).seconds <= 300:  # 5 minutes validity
+                if stored_otp == OTP and (current_time - created_at).seconds <= 600:  # 5 minutes validity
                     cursor.execute("""
                         UPDATE otps
                         SET is_valid = 0
