@@ -1,4 +1,6 @@
 # This is a sample Python script.
+import random
+import string
 import warnings
 
 from flask_caching import Cache
@@ -27,9 +29,6 @@ app.config['MYSQL_DATABASE_PASSWORD'] = ''
 app.config['MYSQL_DATABASE_DB'] = 'asiatrophy'
 app.config['MYSQL_DATABASE_HOST'] = '127.0.0.1'
 
-
-
-
 mysql.init_app(app)
 conn = mysql.connect()
 cursor = conn.cursor()
@@ -42,9 +41,10 @@ warnings.filterwarnings('ignore')
 def customPrint(str):
     print(str)
 
+
 def formatINR(number):
     s, *d = (number).partition(".")
-    r = ",".join([s[x-2:x] for x in range(-3, -len(s), -2)][::-1] + [s[-3:]])
+    r = ",".join([s[x - 2:x] for x in range(-3, -len(s), -2)][::-1] + [s[-3:]])
     return "".join([r] + d)
 
 
@@ -56,24 +56,420 @@ def decrypt(str):
     return str;
 
 
-# @app.route('/api/productlist', methods=['GET'])
-# def productlist():
-#     data = request.form['data']
-#     data=decrypt(data)
-#     customPrint(data)
-#     data = json.loads(data)
-#     ID = data.get('id')
-#     TYPE=data.get('type')
-#
-#     STATUS = True
-#     MESSAGE = "Transaction Success"
-@app.route('/api/allcategories', methods=['POST'])
-async def allcategories():
+def generate_otp(length=6):
+    """Generate a random OTP"""
+    return ''.join(random.choices(string.digits, k=length))
+
+
+@app.route('/api/verifyotp', methods=['POST'])
+def verify_otp():
+    data = request.form['data']
+    customPrint(data)
+    data = json.loads(data)
+    data = data.get('data')
+    data = decrypt(data)
+    MOBILENO = data.get('MOBILENO')
+    OTP = data.get('OTP')
+
+    STATUS = True
+    MESSAGE = "Transaction Success"
+    PI = {}
+
+    try:
+        cursor = mysql.get_db().cursor()
+        cursor.execute("""
+            SELECT otp, created_at, is_valid
+            FROM otps
+            WHERE mobile_number = %s
+        """, (MOBILENO,))
+        result = cursor.fetchone()
+
+        if result:
+            stored_otp, created_at, is_valid = result
+            if is_valid == 0:
+                MESSAGE = "OTP has already been used or is invalid"
+            else:
+                current_time = datetime.now()
+                if stored_otp == OTP and (current_time - created_at).seconds <= 300:  # 5 minutes validity
+                    cursor.execute("""
+                        UPDATE otps
+                        SET is_valid = 0
+                        WHERE mobile_number = %s AND otp = %s
+                    """, (MOBILENO, OTP))
+                    cursor.connection.commit()
+
+                    MESSAGE = "OTP is valid"
+                    cursor.execute("""
+                                SELECT custid, custname,shopname,type,emailid,address
+                                FROM asiatrophybackend_b2bcustomer
+                                WHERE mobileno = %s
+                            """, (MOBILENO,))
+                    result = cursor.fetchone()
+                    if result:
+                        last_login = datetime.now()
+                        cursor.execute("""
+                            UPDATE asiatrophybackend_b2bcustomer
+                            SET lastlogin = %s
+                            WHERE mobileno = %s
+                        """, (last_login, MOBILENO,))
+                        cursor.connection.commit()
+
+                        PI['CUSTID'] = result[0]
+                        print(result[0])
+                        print(result[1])
+
+                        PI['NAME'] = result[1]
+                        PI['SHOPNAME'] = result[2]
+                        PI['TYPE'] = result[3]
+                        PI['EMAILID'] = result[4]
+                        PI['ADDRESS'] = result[5]
+                        print(result[5])
+                    else:
+                        last_login = datetime.now()
+                        cursor.execute("""
+                                        INSERT INTO asiatrophybackend_b2bcustomer (custname,mobileno,shopname,type,emailid,address,
+                                        discountamt_self,status,lastlogin)
+                                        VALUES ('',%s,'',2,'','', 0, 1,%s)
+                
+                         """, (MOBILENO, last_login))
+                        cursor.connection.commit()
+
+                        cursor.execute(""" SELECT custid  from asiatrophybackend_b2bcustomer where mobileno = %s
+                                                    """, (MOBILENO))
+                        result = cursor.fetchone()
+
+                        print("RESULT----_>")
+                        print((result[0]))
+
+                        if result:
+                            print(result[0])
+                            PI['CUSTID'] = str(result[0])
+
+                        PI['NAME'] = ''
+                        PI['SHOPNAME'] = ''
+                        PI['TYPE'] = ''
+                        PI['EMAILID'] = ''
+                        PI['ADDRESS'] = ''
+                    cursor.close()
+
+                else:
+                    MESSAGE = "Invalid or expired OTP"
+        else:
+            MESSAGE = "No OTP found for this mobile number"
+    except Exception as e:
+        STATUS = False
+        MESSAGE = "APPLICATION ERROR-->" + str(e)
+
+    response = {'status': STATUS, 'message': MESSAGE, 'PI': PI}
+
+    return response
+
+
+@app.route('/api/addaddress', methods=['POST'])
+def add_address():
+    data = request.form['data']
+    customPrint(data)
+    data = json.loads(data)
+    data = data.get('data')
+    data = decrypt(data)
+    MOBILENO = data.get('MOBILENO')
+    CUSTOMERID = data.get('CUSTOMERID')
+    ADDRESS = data.get('ADDRESS')
+    CITY = data.get('CITY')
+    STATE = data.get('STATE')
+    PINCODE = data.get('PINCODE')
+    COUNTRY = data.get('COUNTRY')
+    TYPE = data.get('TYPE')
+
+    STATUS = True
+    MESSAGE = "Address has been added Successfully!"
+
+    try:
+        current_time = datetime.now()
+        cursor = mysql.get_db().cursor()
+        cursor.execute("""
+            INSERT INTO asiatrophybackend_address (customer_id, address, city, state, zip_code, type,country,createdat,updatedat)
+            VALUES (%s, %s, %s, %s, %s, %s,%s,%s,%s)
+        """, (CUSTOMERID, ADDRESS, CITY, STATE, PINCODE, TYPE, COUNTRY, current_time, current_time))
+        cursor.connection.commit()
+        cursor.close()
+
+    except Exception as e:
+        STATUS = False
+        MESSAGE = "APPLICATION ERROR-->" + str(e)
+
+    response = {'status': STATUS, 'message': MESSAGE}
+
+    return response
+
+@app.route('/api/deleteaddress', methods=['POST'])
+def delete_address():
+    data = request.form['data']
+    customPrint(data)
+    data = json.loads(data)
+    data = data.get('data')
+    data = decrypt(data)
+    MOBILENO = data.get('MOBILENO')
+    ADDRESS_ID = data.get('ADDRESS_ID')
+    CUSTOMERID = data.get('CUSTOMERID')
+    STATUS = True
+    MESSAGE = "Address has been deleted successfully!"
+
+    try:
+        cursor = mysql.get_db().cursor()
+        result=cursor.execute("DELETE FROM asiatrophybackend_address WHERE address_id = %s and customer_id=%s", (ADDRESS_ID,CUSTOMERID))
+        print(result)
+        cursor.connection.commit()
+        cursor.close()
+
+        if result==0:
+            STATUS = False
+            MESSAGE = "Address Delete Request has been Failed!"
+
+
+    except Exception as e:
+        STATUS = False
+        MESSAGE = "APPLICATION ERROR-->" + str(e)
+
+    response = {'status': STATUS, 'message': MESSAGE}
+
+    return jsonify(response)
+
+@app.route('/api/addresslist', methods=['POST'])
+def get_addresses():
+    data = request.form['data']
+    customPrint(data)
+    data = json.loads(data)
+    data = data.get('data')
+    data = decrypt(data)
+    MOBILENO = data.get('MOBILENO')
+    CUSTOMERID = data.get('CUSTOMERID')
+    STATUS = True
+    MESSAGE = "Addresses retrieved successfully!"
+    addresses = []
+
+    try:
+        cursor = mysql.get_db().cursor()
+        cursor.execute("""
+            SELECT address_id, address, city, state, zip_code, country,type
+            FROM asiatrophybackend_address
+            WHERE customer_id = %s
+        """, (CUSTOMERID,))
+        addresses_data = cursor.fetchall()
+        cursor.close()
+
+        if  len(addresses_data)>0:
+            for address in addresses_data:
+                address_response={}
+                address_response['addresses_id'] = address[0]
+                address_response['addresses'] = address[1]
+                address_response['city'] = address[2]
+                address_response['state'] = address[3]
+                address_response['zip_code'] = address[4]
+                address_response['country'] = address[5]
+                address_response['type'] = address[6]
+                addresses.append(address_response)
+        else:
+            STATUS = False
+            MESSAGE = "Address Details not available!"
+
+
+    except Exception as e:
+        STATUS = False
+        MESSAGE = "APPLICATION ERROR-->" + str(e)
+
+    # Custom JSON key for the list of addresses
+    response = {'status': STATUS, 'message': MESSAGE, 'address': addresses}
+
+    return response
+
+
+
+@app.route('/api/updateaddress', methods=['POST'])
+def update_address():
+    data = request.form['data']
+    customPrint(data)
+    data = json.loads(data)
+    data = data.get('data')
+    data = decrypt(data)
+    MOBILENO = data.get('MOBILENO')
+    ADDRESS_ID = data.get('ADDRESS_ID')
+    CUSTOMERID = data.get('CUSTOMERID')
+    ADDRESS = data.get('ADDRESS')
+    CITY = data.get('CITY')
+    STATE = data.get('STATE')
+    PINCODE = data.get('PINCODE')
+    COUNTRY = data.get('COUNTRY')
+    TYPE = data.get('TYPE')
+
+    STATUS = True
+    MESSAGE = "Address has been updated successfully!"
+
+    try:
+        current_time = datetime.now()
+        cursor = mysql.get_db().cursor()
+        cursor.execute("""
+            UPDATE asiatrophybackend_address
+            SET customer_id = %s, address = %s, city = %s, state = %s, zip_code = %s, type = %s, country = %s, updatedat = %s
+            WHERE address_id = %s and customer_id=%s
+        """, (CUSTOMERID, ADDRESS, CITY, STATE, PINCODE, TYPE, COUNTRY, current_time, ADDRESS_ID,CUSTOMERID))
+        cursor.connection.commit()
+        cursor.close()
+
+    except Exception as e:
+        STATUS = False
+        MESSAGE = "APPLICATION ERROR-->" + str(e)
+
+    response = {'status': STATUS, 'message': MESSAGE}
+
+    return response
+
+
+@app.route('/api/updatecustomer', methods=['POST'])
+def update_customer():
+
+    data = request.form['data']
+    customPrint(data)
+    data = json.loads(data)
+    data = data.get('data')
+    data = decrypt(data)
+    MOBILENO = data.get('MOBILENO')
+    NAME = data.get('NAME')
+    CUSTOMERID = data.get('CUSTOMERID')
+    SHOPNAME = data.get('SHOPNAME')
+
+    print(MOBILENO)
+
+    STATUS = True
+    MESSAGE = "Datails have been updated successfully!"
+
+    try:
+        cursor = mysql.get_db().cursor()
+        result=cursor.execute("""
+            UPDATE asiatrophybackend_b2bcustomer
+            SET custname = %s, shopname = %s
+            WHERE custid = %s
+        """, (NAME, SHOPNAME, CUSTOMERID))
+        cursor.connection.commit()
+        cursor.close()
+
+        if result==0:
+            STATUS = False
+            MESSAGE = "Failed to Update the details!"
+
+    except Exception as e:
+            STATUS = False
+            MESSAGE = "APPLICATION ERROR-->" + str(e)
+
+    response = {'status': STATUS, 'message': MESSAGE}
+
+    return response
+
+
+@app.route('/api/generateotp', methods=['POST'])
+def generate_otp_for_mobile():
+    data = request.form['data']
+    customPrint(data)
+    data = json.loads(data)
+    data = data.get('data')
+    data = decrypt(data)
+    MOBILENO = data.get('MOBILENO')
+    print(MOBILENO)
+
+    STATUS = True
+    MESSAGE = "Transaction Success"
+
+    try:
+        otp = generate_otp()
+        otp_created_at = datetime.now()
+        cursor = mysql.get_db().cursor()
+        cursor.execute("SELECT * FROM otps WHERE mobile_number = %s", (MOBILENO,))
+        result = cursor.fetchone()
+
+        if result:
+            # Update the existing record
+            cursor.execute("""
+                UPDATE otps
+                SET otp = %s, created_at = %s, is_valid = 1
+                WHERE mobile_number = %s
+            """, (otp, otp_created_at, MOBILENO))
+        else:
+            # Insert a new record
+            cursor.execute("""
+                INSERT INTO otps (mobile_number, otp, created_at, is_valid)
+                VALUES (%s, %s, %s, 1)
+            """, (MOBILENO, otp, otp_created_at))
+
+        cursor.connection.commit()
+
+
+    except Exception as e:
+        STATUS = False
+        MESSAGE = "APPLICATION ERROR-->" + str(e)
+
+    response = {'status': STATUS, 'message': MESSAGE}
+
+    return response
+
+
+@app.route('/api/filtermaster', methods=['POST'])
+async def filtermaster():
     data = request.form['data']
     data = decrypt(data)
     customPrint(data)
     data = json.loads(data)
     MOBILENO = data.get('MOBILENO')
+
+    category_list = []
+    material_list = []
+    STATUS = True
+    MESSAGE = "Transaction Success"
+
+    try:
+        cursor = mysql.get_db().cursor()
+        query = "select id,name,image from asiatrophybackend_categories where status=1";
+        cursor.execute(query)
+        data = cursor.fetchall()
+        if len(data) > 0:
+            for query_data in data:
+                category_response = {}
+                category_response['ID'] = str(query_data[0])
+                category_response['NAME'] = query_data[1]
+                category_response['IMAGE'] = query_data[2]
+                category_list.append(category_response)
+
+        query = "select id,name from asiatrophybackend_material where status=1";
+        cursor.execute(query)
+        data = cursor.fetchall()
+        if len(data) > 0:
+            for query_data in data:
+                allmaterial_response = {}
+                allmaterial_response['ID'] = str(query_data[0])
+                allmaterial_response['NAME'] = query_data[1]
+                material_list.append(allmaterial_response)
+
+
+    except Exception as e:
+        STATUS = False
+        MESSAGE = "APPLICATION ERROR-->" + str(e)
+
+    response = {'status': STATUS, 'message': MESSAGE,
+                'category_list': category_list, 'material_list': material_list}
+    response = encrypt(jsonify(response))
+    return response
+
+
+@app.route('/api/allcategories', methods=['POST'])
+async def allcategories():
+    data = request.form['data']
+    customPrint(data)
+    data = json.loads(data)
+    data = data.get('data')
+    data = decrypt(data)
+    MOBILENO = data.get('MOBILENO')
+    print("***********************");
+    print(MOBILENO)
+    print("***********************");
 
     category_list = []
     STATUS = True
@@ -103,6 +499,7 @@ async def allcategories():
     response = encrypt(jsonify(response))
     return response
 
+
 @app.route('/api/productlistnew', methods=['POST'])
 async def productlistNew():
     data = request.form['data']
@@ -112,30 +509,31 @@ async def productlistNew():
     data = decrypt(data)
     MOBILENO = data.get('MOBILENO')
     MATERIALID = data.get('MATERIALID')
-    CATEGORYID=data.get('CATEGORYID')
+    CATEGORYID = data.get('CATEGORYID')
     TOPSELLING = data.get('TOPSELLING')
     NEWARRIVAL = data.get('NEWARRIVAL')
     OFFERS = data.get('OFFERS')
+    MINPRICE = data.get('MINPRICE')
+    MAXPRICE = data.get('MAXPRICE')
 
     customPrint(MATERIALID)
     customPrint(MOBILENO)
     customPrint(CATEGORYID)
 
-
     product_list = []
     STATUS = True
     MESSAGE = "Transaction Success"
-    query = "select p.id,p.name,p.image,p.videolink,min(f.size),max(f.size),min(f.price),max(f.price),max(f.discount) from  asiatrophybackend_product p, asiatrophybackend_flavor f, asiatrophybackend_product_categories pc where p.status=1";
+    query = "select p.id,p.name,p.image,p.videolink,min(f.size),max(f.size),min(f.price),max(f.price),max(f.discount) from  asiatrophybackend_product p, asiatrophybackend_flavor f, asiatrophybackend_product_categories pc where p.status=1 and f.product_id=p.id";
 
     try:
         cursor = mysql.get_db().cursor()
 
         # "group by p.id"
-        if  len(MATERIALID)>0:
-            query = query+ " and p.material_id in ("+MATERIALID+")";
+        if len(MATERIALID) > 0:
+            query = query + " and p.material_id in (" + MATERIALID + ")";
 
-        if len(CATEGORYID)>0:
-            query = query + " and pc.categories_id in ("+CATEGORYID+") and pc.product_id=p.id";
+        if len(CATEGORYID) > 0:
+            query = query + " and pc.categories_id in (" + CATEGORYID + ") and pc.product_id=p.id";
 
         if len(TOPSELLING) > 0:
             query = query + " and topselling=1";
@@ -146,12 +544,18 @@ async def productlistNew():
         if len(OFFERS) > 0:
             query = query + " and offers=1";
 
-        query=query+" group by p.id"
+        if len(MINPRICE) > 0:
+            query = query + " and f.price>=" + (MINPRICE);
+
+        if len(MAXPRICE) > 0:
+            query = query + " and f.price<=" + (MAXPRICE);
+
+        query = query + " group by p.id"
+
         print(query)
         cursor.execute(query)
         data_sub = cursor.fetchall()
         print(len(data_sub))
-
 
         if len(data_sub) > 0:
             for query_data_sub in data_sub:
@@ -161,7 +565,8 @@ async def productlistNew():
                 product_response['IMAGE'] = query_data_sub[2]
                 product_response['VIDEOLINK'] = query_data_sub[3]
                 product_response['SIZE'] = f'{str(query_data_sub[4])} in -{str(query_data_sub[5])} in'
-                product_response['PRICE'] = f'₹. {formatINR(str(query_data_sub[6]))} - ₹. {formatINR(str(query_data_sub[7]))}'
+                product_response[
+                    'PRICE'] = f'₹. {formatINR(str(query_data_sub[6]))} - ₹. {formatINR(str(query_data_sub[7]))}'
                 product_response['DISCOUNT'] = str(query_data_sub[8])
                 product_list.append(product_response)
         else:
@@ -172,11 +577,9 @@ async def productlistNew():
         MESSAGE = "APPLICATION ERROR-->" + str(e)
 
     response = {'status': STATUS, 'message': MESSAGE,
-                'product_list': product_list}
+                'product_list': product_list, 'pcount': len(product_list)}
     response = encrypt(jsonify(response))
     return response
-
-
 
 
 @app.route('/api/productlist', methods=['POST'])
@@ -188,14 +591,13 @@ async def productlist():
     data = decrypt(data)
     MOBILENO = data.get('MOBILENO')
     MATERIALID = data.get('MATERIALID')
-    CATEGORYID=data.get('CATEGORYID')
+    CATEGORYID = data.get('CATEGORYID')
     TOPSELLING = data.get('TOPSELLING')
     TOPSELLING = data.get('TOPSELLING')
 
     customPrint(MATERIALID)
     customPrint(MOBILENO)
     customPrint(CATEGORYID)
-
 
     product_list = []
     STATUS = True
@@ -204,10 +606,10 @@ async def productlist():
     try:
         cursor = mysql.get_db().cursor()
 
-        if  len(MATERIALID)>0:
-            query = "select p.id,p.name,p.image,p.videolink,min(f.size),max(f.size),min(f.price),max(f.price),max(f.discount) from  asiatrophybackend_product p, asiatrophybackend_flavor f where f.stock=1 and f.status=1 and p.id=f.product_id and p.material_id in ("+MATERIALID+") group by p.id";
+        if len(MATERIALID) > 0:
+            query = "select p.id,p.name,p.image,p.videolink,min(f.size),max(f.size),min(f.price),max(f.price),max(f.discount) from  asiatrophybackend_product p, asiatrophybackend_flavor f where f.stock=1 and f.status=1 and p.id=f.product_id and p.material_id in (" + MATERIALID + ") group by p.id";
             customPrint(query)
-            customPrint(query )  # Print the query with parameters substituted
+            customPrint(query)  # Print the query with parameters substituted
             cursor.execute(query)
             # formatted_query = query % MATERIALID  # Format the query with placeholders
 
@@ -215,8 +617,8 @@ async def productlist():
             print("TOTAL RECORD>>>>>")
             print(len(data_sub))
 
-        elif   len(CATEGORYID)>0:
-            query = "select p.id,p.name,p.image,p.videolink,min(f.size),max(f.size),min(f.price),max(f.price),max(f.discount) from  asiatrophybackend_product p, asiatrophybackend_flavor f,asiatrophybackend_product_categories pc where f.stock=1 and f.status=1 and p.id=f.product_id and pc.categories_id in ("+CATEGORYID+") and pc.product_id=p.id group by p.id";
+        elif len(CATEGORYID) > 0:
+            query = "select p.id,p.name,p.image,p.videolink,min(f.size),max(f.size),min(f.price),max(f.price),max(f.discount) from  asiatrophybackend_product p, asiatrophybackend_flavor f,asiatrophybackend_product_categories pc where f.stock=1 and f.status=1 and p.id=f.product_id and pc.categories_id in (" + CATEGORYID + ") and pc.product_id=p.id group by p.id";
             customPrint(query)
             cursor.execute(query)
             data_sub = cursor.fetchall()
@@ -236,7 +638,6 @@ async def productlist():
             data_sub = cursor.fetchall()
 
             print(len(data_sub))
-
 
         if len(data_sub) > 0:
             for query_data_sub in data_sub:
@@ -246,7 +647,8 @@ async def productlist():
                 product_response['IMAGE'] = query_data_sub[2]
                 product_response['VIDEOLINK'] = query_data_sub[3]
                 product_response['SIZE'] = f'{str(query_data_sub[4])} in -{str(query_data_sub[5])} in'
-                product_response['PRICE'] = f'₹. {formatINR(str(query_data_sub[6]))} - ₹. {formatINR(str(query_data_sub[7]))}'
+                product_response[
+                    'PRICE'] = f'₹. {formatINR(str(query_data_sub[6]))} - ₹. {formatINR(str(query_data_sub[7]))}'
                 product_response['DISCOUNT'] = str(query_data_sub[8])
                 product_list.append(product_response)
         else:
@@ -260,6 +662,7 @@ async def productlist():
                 'product_list': product_list}
     response = encrypt(jsonify(response))
     return response
+
 
 @app.route('/api/singleproductdetails', methods=['POST'])
 async def singleproductdetails():
@@ -357,7 +760,6 @@ async def allmaterial():
     data = decrypt(data)
     MOBILENO = data.get('MOBILENO')
 
-
     material_list = []
     STATUS = True
     MESSAGE = "Transaction Success"
@@ -404,7 +806,7 @@ async def dashboard():
     category_list = []
     product_response_newarrival = []
     product_response_topselling = []
-    product_response_offers=[]
+    product_response_offers = []
 
     STATUS = True
     MESSAGE = "Transaction Success"
@@ -476,7 +878,8 @@ async def dashboard():
                 product_response['IMAGE'] = query_data_sub[2]
                 product_response['VIDEOLINK'] = query_data_sub[3]
                 product_response['SIZE'] = f'{str(query_data_sub[4])} in -{str(query_data_sub[5])} in'
-                product_response['PRICE'] = f'₹. {formatINR(str(query_data_sub[6]))} - ₹. {formatINR(str(query_data_sub[7]))}'
+                product_response[
+                    'PRICE'] = f'₹. {formatINR(str(query_data_sub[6]))} - ₹. {formatINR(str(query_data_sub[7]))}'
                 product_response['DISCOUNT'] = str(query_data_sub[8])
                 product_response_newarrival.append(product_response)
 
@@ -495,7 +898,8 @@ async def dashboard():
                 product_response['IMAGE'] = query_data_sub[2]
                 product_response['VIDEOLINK'] = query_data_sub[3]
                 product_response['SIZE'] = f'{str(query_data_sub[4])} in -{str(query_data_sub[5])} in'
-                product_response['PRICE'] = f'₹. {formatINR(str(query_data_sub[6]))} - ₹. {formatINR(str(query_data_sub[7]))}'
+                product_response[
+                    'PRICE'] = f'₹. {formatINR(str(query_data_sub[6]))} - ₹. {formatINR(str(query_data_sub[7]))}'
                 product_response['DISCOUNT'] = str(query_data_sub[8])
                 product_response_topselling.append(product_response)
 
@@ -513,7 +917,8 @@ async def dashboard():
                 product_response['IMAGE'] = query_data_sub[2]
                 product_response['VIDEOLINK'] = query_data_sub[3]
                 product_response['SIZE'] = f'{str(query_data_sub[4])} in -{str(query_data_sub[5])} in'
-                product_response['PRICE'] = f'₹. {formatINR(str(query_data_sub[6]))} - ₹. {formatINR(str(query_data_sub[7]))}'
+                product_response[
+                    'PRICE'] = f'₹. {formatINR(str(query_data_sub[6]))} - ₹. {formatINR(str(query_data_sub[7]))}'
                 product_response['DISCOUNT'] = str(query_data_sub[8])
                 product_response_offers.append(product_response)
 
@@ -523,7 +928,8 @@ async def dashboard():
 
     response = {'status': STATUS, 'message': MESSAGE, 'bannerlist': banner_list, 'materialList': material_list,
                 'category_list': category_list, 'product_response_newarrival': product_response_newarrival,
-                'product_response_topselling': product_response_topselling,'product_response_offers':product_response_offers}
+                'product_response_topselling': product_response_topselling,
+                'product_response_offers': product_response_offers}
     response = encrypt(jsonify(response))
     return response  # Press ⌘F8 to toggle the breakpoint.
 
