@@ -87,6 +87,7 @@ def verify_otp():
         if result:
             stored_otp, created_at, is_valid = result
             if is_valid == 0:
+                STATUS=False
                 MESSAGE = "OTP has already been used or is invalid"
             else:
                 current_time = datetime.now()
@@ -100,7 +101,7 @@ def verify_otp():
 
                     MESSAGE = "OTP is valid"
                     cursor.execute("""
-                                SELECT custid, custname,shopname,type,emailid,address
+                                SELECT custid, custname,shopname,type,emailid
                                 FROM asiatrophybackend_b2bcustomer
                                 WHERE mobileno = %s
                             """, (MOBILENO,))
@@ -122,8 +123,6 @@ def verify_otp():
                         PI['SHOPNAME'] = result[2]
                         PI['TYPE'] = result[3]
                         PI['EMAILID'] = result[4]
-                        PI['ADDRESS'] = result[5]
-                        print(result[5])
                     else:
                         last_login = datetime.now()
                         cursor.execute("""
@@ -154,8 +153,10 @@ def verify_otp():
 
                 else:
                     MESSAGE = "Invalid or expired OTP"
+                    STATUS=False
         else:
             MESSAGE = "No OTP found for this mobile number"
+            STATUS=False
     except Exception as e:
         STATUS = False
         MESSAGE = "APPLICATION ERROR-->" + str(e)
@@ -271,7 +272,7 @@ def get_addresses():
                 addresses.append(address_response)
         else:
             STATUS = False
-            MESSAGE = "Address Details not available!"
+            MESSAGE = "No Address Details has been provided. Click on (+) icon to add your Address Information."
 
 
     except Exception as e:
