@@ -60,6 +60,52 @@ def generate_otp(length=4):
     """Generate a random OTP"""
     return ''.join(random.choices(string.digits, k=length))
 
+@app.route('/api/processorder', methods=['POST'])
+def process_order():
+    data = request.form['data']
+    customPrint(data)
+    data = json.loads(data)
+    data = data.get('data')
+    data = decrypt(data)
+    MOBILENO = data.get('MOBILENO')
+    CUSTOMERID = data.get('CUSTOMERID')
+    TOTALPRICE = data.get('TOTALPRICE')
+    DISCOUNTEDPRICE = data.get('DISCOUNTEDPRICE')
+    STATUS = True
+    MESSAGE = "Transaction Success"
+    ORDERID=""
+    # items = data.get('items')  # Assuming items is a list of dictionaries
+
+    try:
+        cursor = mysql.get_db().cursor()
+        current_time = datetime.now()
+
+        # Process the order items
+        insert_order_query = "INSERT INTO asiatrophybackend_order (customer_id, total_price, discounted_price, order_date,created_at,created_by,status,comments) VALUES (%s, %s, %s, %s,%s, %s, %s, %s)"
+        # order_values = (
+        cursor.execute(insert_order_query, (CUSTOMERID,TOTALPRICE,DISCOUNTEDPRICE,current_time,current_time,'Customer','1','Order Created'))
+
+        ORDERID = cursor.lastrowid
+        print(ORDERID)
+        # order_id = cursor.lastrowid  # Get the ID of the inserted order
+        #
+        # # Insert order item data into the 'order_items' table
+        for item in data['items']:
+            insert_item_query = "INSERT INTO asiatrophybackend_orderitem (order_id, flavour_id, product_id,quantity, price,discount_percent,price_discount) VALUES (%s, %s, %s, %s, %s, %s, %s)"
+            item_values = (ORDERID, item['flavour_id'],item['product_id'], item['quantity'], item['price'],item['discount_percent'],item['price_discount'])
+            cursor.execute(insert_item_query, item_values)
+
+        cursor.connection.commit()
+        cursor.close()
+
+    # Example response with extracted order information
+    except Exception as e:
+        STATUS = False
+        MESSAGE = "APPLICATION ERROR-->" + str(e)
+
+    response = {'status': STATUS, 'message': MESSAGE,'orderid':str(ORDERID)}
+
+    return response
 
 @app.route('/api/verifyotp', methods=['POST'])
 def verify_otp():
@@ -99,9 +145,9 @@ def verify_otp():
                     """, (MOBILENO, OTP))
                     cursor.connection.commit()
 
-                    MESSAGE = "OTP is valid"
+                    MESSAGE = "OTP has been verified Successfully!"
                     cursor.execute("""
-                                SELECT custid, custname,shopname,type,emailid
+                                SELECT custid, custname,shopname,type,emailid,discountamt_self
                                 FROM asiatrophybackend_b2bcustomer
                                 WHERE mobileno = %s
                             """, (MOBILENO,))
@@ -123,12 +169,13 @@ def verify_otp():
                         PI['SHOPNAME'] = result[2]
                         PI['TYPE'] = result[3]
                         PI['EMAILID'] = result[4]
+                        PI['DISCOUNT']=result[5]
                     else:
                         last_login = datetime.now()
                         cursor.execute("""
-                                        INSERT INTO asiatrophybackend_b2bcustomer (custname,mobileno,shopname,type,emailid,address,
+                                        INSERT INTO asiatrophybackend_b2bcustomer (custname,mobileno,shopname,type,emailid,
                                         discountamt_self,status,lastlogin)
-                                        VALUES ('',%s,'',2,'','', 0, 1,%s)
+                                        VALUES ('',%s,'',2,'', 0.0, 1,%s)
                 
                          """, (MOBILENO, last_login))
                         cursor.connection.commit()
@@ -146,9 +193,11 @@ def verify_otp():
 
                         PI['NAME'] = ''
                         PI['SHOPNAME'] = ''
-                        PI['TYPE'] = ''
+                        PI['TYPE'] = '2'
                         PI['EMAILID'] = ''
                         PI['ADDRESS'] = ''
+                        PI['DISCOUNT']=0
+
                     cursor.close()
 
                 else:
@@ -937,6 +986,6 @@ async def dashboard():
 
 # Press the green button in the gutter to run the script.
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5002, debug=True)
+    app.run(host='0.0.0.0', port=5005, debug=True)
 
 # See PyCharm help at https://www.jetbrains.com/help/pycharm/
