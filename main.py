@@ -91,8 +91,9 @@ def process_order():
         #
         # # Insert order item data into the 'order_items' table
         for item in data['items']:
-            insert_item_query = "INSERT INTO asiatrophybackend_orderitem (order_id, flavour_id, product_id,quantity, price,discount_percent,price_discount) VALUES (%s, %s, %s, %s, %s, %s, %s)"
-            item_values = (ORDERID, item['flavour_id'],item['product_id'], item['quantity'], item['price'],item['discount_percent'],item['price_discount'])
+            insert_item_query = "INSERT INTO asiatrophybackend_orderitem (order_id, flavour_id, product_id,quantity, price,discount_percent,price_discount,total_price,total_price_discount) VALUES (%s, %s, %s, %s, %s, %s, %s,%s,%s)"
+            item_values = (ORDERID, item['flavour_id'],item['product_id'], item['quantity'], item['price'],item['discount_percent'],item['price_discount'],
+                           item['total_price'],item['total_price_discount'])
             cursor.execute(insert_item_query, item_values)
 
         cursor.connection.commit()
@@ -765,7 +766,7 @@ async def singleproductdetails():
 
                 product_response['CATEGORIES'] = str(categories_str)
 
-                query_flavour = "select f.id,f.size,f.image,f.price,f.discount,f.product_id,f.stock,f.quantity from  asiatrophybackend_flavor f where" \
+                query_flavour = "select f.id,f.size,f.image,f.price,f.discount,f.product_id,f.stock,f.quantity,f.discountamount from  asiatrophybackend_flavor f where" \
                                 " product_id=%s";
                 cursor.execute(query_flavour, PRODUCTID)
                 product_flavour_details = cursor.fetchall()
@@ -779,6 +780,11 @@ async def singleproductdetails():
                     flavour_response['PRODUCT_ID'] = str(query_data_flavour[5])
                     flavour_response['STOCK'] = int(query_data_flavour[6])
                     flavour_response['QTY'] = int(query_data_flavour[7])
+
+                    if query_data_flavour[8] is None:
+                        flavour_response['DISCOUNTAMOUNT'] =0
+                    else:
+                        flavour_response['DISCOUNTAMOUNT'] = float(query_data_flavour[8])
 
                     if None != query_data_flavour[7]:
                         if int(query_data_flavour[7]) < 0:
