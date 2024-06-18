@@ -60,6 +60,9 @@ def generate_otp(length=4):
     """Generate a random OTP"""
     return ''.join(random.choices(string.digits, k=length))
 
+
+
+
 @app.route('/api/processorder', methods=['POST'])
 def process_order():
     data = request.form['data']
@@ -285,6 +288,110 @@ def delete_address():
     response = {'status': STATUS, 'message': MESSAGE}
 
     return jsonify(response)
+
+
+@app.route('/api/orderdetailslist', methods=['POST'])
+def orderDetailsList():
+    data = request.form['data']
+    customPrint(data)
+    data = json.loads(data)
+    data = data.get('data')
+    data = decrypt(data)
+    MOBILENO = data.get('MOBILENO')
+    CUSTOMERID = data.get('CUSTOMERID')
+    ORDERID = data.get('ORDERID')
+    STATUS = True
+    MESSAGE = "Order Details Fetch successfully!"
+    orderDetailsList = []
+
+    try:
+        cursor = mysql.get_db().cursor()
+        cursor.execute("""
+              SELECT oi.id, oi.quantity, oi.flavour_id,oi.order_id,oi.product_id,oi.discount_percent,oi.price,oi.price_discount, oi.total_price,oi.total_price_discount,
+              f.size, p.name,p.image
+              
+               from asiatrophybackend_orderitem oi,asiatrophybackend_flavor f,asiatrophybackend_product p
+              WHERE oi.order_id = %s and oi.product_id=p.id and oi.flavour_id=f.id
+          """, (ORDERID,))
+        order_data = cursor.fetchall()
+
+        if len(order_data) > 0:
+            for order in order_data:
+                order_response = {}
+                order_response['id'] = str(order[0])
+                order_response['quantity'] = str(order[1])
+                order_response['flavour_id'] = str(order[2])
+                order_response['order_id'] = str(order[3])
+                order_response['product_id'] = str(order[4])
+                order_response['discount_percent'] = str(order[5])
+                order_response['price'] = str(order[6])
+                order_response['price_discount'] = str(order[7])
+                order_response['total_price'] = str(order[8])
+                order_response['total_price_discount'] = str(order[9])
+                order_response['size'] = str(order[10])
+                order_response['pname'] = str(order[11])
+                order_response['pimage'] = str(order[12])
+
+                orderDetailsList.append(order_response)
+        else:
+            MESSAGE = "No Order Details Found!"
+            orderDetailsList = []
+        cursor.close()
+
+    except Exception as e:
+        STATUS = False
+        MESSAGE = "APPLICATION ERROR-->" + str(e)
+
+    # Custom JSON key for the list of addresses
+    response = {'status': STATUS, 'message': MESSAGE, 'orderDetailsList': orderDetailsList}
+
+    return response
+
+@app.route('/api/orderlist', methods=['POST'])
+def orderList():
+    data = request.form['data']
+    customPrint(data)
+    data = json.loads(data)
+    data = data.get('data')
+    data = decrypt(data)
+    MOBILENO = data.get('MOBILENO')
+    CUSTOMERID = data.get('CUSTOMERID')
+    ORDERSTATUS=data.get('ORDERSTATUS')
+    STATUS = True
+    MESSAGE = "Order Fetch successfully!"
+    orderList = []
+
+    try:
+        cursor = mysql.get_db().cursor()
+        cursor.execute("""
+              SELECT orderid, order_date, status, discounted_price, total_price
+              FROM asiatrophybackend_order
+              WHERE customer_id = %s
+          """, (CUSTOMERID,))
+        order_data = cursor.fetchall()
+
+        if len(order_data) > 0:
+            for order in order_data:
+                order_response = {}
+                order_response['orderid'] = str(order[0])
+                order_response['orderdate'] = order[1].strftime('%d-%B-%Y %I:%M %p')
+                order_response['orderstatus'] = order[2]
+                order_response['discounted_price'] = str(order[3])
+                order_response['total_price'] = str(order[4])
+                orderList.append(order_response)
+        else:
+            MESSAGE = "No Order Found!"
+            orderList = []
+        cursor.close()
+
+    except Exception as e:
+        STATUS = False
+        MESSAGE = "APPLICATION ERROR-->" + str(e)
+
+    # Custom JSON key for the list of addresses
+    response = {'status': STATUS, 'message': MESSAGE, 'orderlist': orderList}
+
+    return response
 
 @app.route('/api/addresslist', methods=['POST'])
 def get_addresses():
